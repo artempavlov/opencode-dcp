@@ -48,7 +48,16 @@ Publishing is npm OIDC trusted publishing (no `NPM_TOKEN` secret); auth/provenan
 
 - **Outbound-only**: the `session.hook("context")` transform may rewrite only the outbound transcript sent to the model. Stored session history is never modified.
 - **Stable transcript keys** (`lib/transcript/scan.ts`): `message.id` when unique, else `${role}#${index}`. Keys are persisted inside compression blocks via plugin storage and must survive restarts — changing key derivation invalidates saved sessions.
-- Transcripts are append-only between compactions/reverts; those events reset DCP state.
+- Native compaction resets DCP state. Reverts must NOT erase all summaries:
+  `StateStore.reconcile` preserves fully surviving coverage and restores valid
+  consumed children when a later block straddles the cutoff. It runs at the
+  committed boundary when the mirror knows it, and before context transforms
+  to cover missed events/restarts. Never show a partial block's summary.
+- `compressionAnchorIndex` is shared by outbound rendering and prune range
+  resolution. A legacy `tail` or missing successor anchors after the last
+  covered message, not after every newly appended turn.
+- Model pressure uses the smaller positive finite context/input ceiling and a
+  60% default budget. Preserve these local fixes when updating upstream.
 - Dedup/error-purge runs at compression time specifically so idle sessions keep a stable prompt-cache prefix — don't introduce mid-transcript rewrites outside compression.
 - Boundary IDs (`m0001…` messages, `b1…` blocks, `<dcp-message-id>` tags) are environment-injected addressing metadata, never model output. They are a **per-dispatch projection** of the visible transcript (`RefRegistry.project`), dense from `m0001` and strictly ascending in transcript order — the model is told to rely on that ordering, so any future change that lets `mNNNN` wrap, reuse a slot below a live one, or grow monotonically across a session reintroduces the `startId m0006 appears after endId m0129` failure mode (9 of 26 prunes died on it in production). `release()` must not rewind `next` to the lowest free index.
 - Media is never billed as text. `measurePartChars` charges inline `data:` URIs and `MediaPart`→`Asset`→`Source` payloads a flat per-kind allowance (`MEDIA_TOKEN_ALLOWANCE`); the payload bytes are not characters the provider charges per-4. A 4 MB inline PNG was measured at 1,007,171 tokens (96% of a 1M window) before this, against a real 119k. `ArrayBuffer.isView` short-circuits for the same reason — `Object.values` over a `Uint8Array` allocates per byte.
@@ -67,7 +76,10 @@ The user's standing rules: **always update to latest — pull the `opencode-v2` 
 - Pull the reference first: `git -C ~/.local/share/opencode/repos/github.com/anomalyco/opencode@v2 pull --ff-only` (branch `v2`). Never adjust the plugin to a stale snapshot.
 - Update the dependencies: `AUBE_MINIMUM_RELEASE_AGE=0 aube update @opencode/plugin @opencode/theme` (specifiers stay `latest` in `package.json`; the lockfile is the pin). Then `aubr typecheck` + `aube test`, and `npm run build` before live testing.
 - Check the behavior against the published package rather than the reference source — the snapshot's `packages/plugin/package.json` version can trail npm (`2.0.26` in the snapshot vs `dist-tags.latest 2.2.3`); `npm view @opencode/plugin version` is the version source of truth.
-- Last verified pairing (2026-10-30): `@opencode/plugin` + `@opencode/theme` 2.2.3 — typecheck green, all 178 tests pass.
+- Last verified pairing (2026-11-08): `@opencode/plugin` + `@opencode/theme` 2.2.6; typecheck and 182 unit tests pass. `npm run test:runtime` tests the built/installed artifact in isolated V2 2.2.5 with a fake provider, including revert, replacement, cache prefix, raw-history invariance, and restart. Use `OPENCODE_V2_BINARY` for another executable and `DCP_PLUGIN_SOURCE` for the installed directory.
+- `scripts/install-local.mjs <absolute-directory>` upgrades only the known
+  `opencode-dcp-local` vendor layout without changing config or storage. Rebuild
+  first. Never publish personal-session fixtures or ignored `.tmp/` traces.
 
 ## Reference repos (wired in `.opencode/opencode.json`)
 

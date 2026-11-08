@@ -232,8 +232,8 @@ async function runPump(events: Array<Record<string, unknown>>, deps: PumpHarness
   await pump;
 }
 
-test("every session-lifecycle event the pump handles drops all DCP state", async () => {
-  // These six names are the pump's reset set. Each is a verbatim member of the
+test("native compaction, fork and deletion drop all DCP state", async () => {
+  // These five names are the pump's reset set. Each is a verbatim member of the
   // generated server event union (packages/client/src/promise/generated/
   // types.ts); if a future bump renames one it simply stops arriving and the
   // pump would silently stop resetting, so the set is pinned here instead of
@@ -242,7 +242,6 @@ test("every session-lifecycle event the pump handles drops all DCP state", async
     "session.compaction.started",
     "session.compaction.ended",
     "session.compaction.failed",
-    "session.revert.committed",
     "session.forked",
     "session.deleted",
   ]) {

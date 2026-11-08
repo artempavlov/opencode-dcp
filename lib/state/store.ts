@@ -73,7 +73,46 @@ export class StateStore {
     }
   }
 
-  /** Drops all DCP edits for a session (compaction / revert / deletion). */
+  /** Keep only whole summaries whose original messages still exist. */
+  async reconcile(sessionId: string, keys: readonly string[]): Promise<void> {
+    const runtime = await this.ensure(sessionId)
+    const present = new Set(keys)
+    const retained: number[] = []
+    const seen = new Set<number>()
+    const visit = (id: number): void => {
+      if (seen.has(id)) return
+      seen.add(id)
+      const block = runtime.state.blocks[String(id)]
+      if (!block) return
+      if (block.coveredKeys.length > 0 && block.coveredKeys.every((key) => present.has(key))) {
+        retained.push(id)
+      } else {
+        // A later fold can straddle the cutoff while its older children remain
+        // valid. Never keep a partial summary: it can reveal reverted content.
+        for (const child of block.consumedBlockIds) visit(child)
+      }
+    }
+    for (const id of runtime.state.activeBlockIds) visit(id)
+    // Invalid inactive blocks must go too: `(bN)` expansion can otherwise
+    // resurrect their reverted text during a later prune.
+    let removed = false
+    for (const [id, block] of Object.entries(runtime.state.blocks)) {
+      if (block.coveredKeys.length === 0 || !block.coveredKeys.every((key) => present.has(key))) {
+        delete runtime.state.blocks[id]
+        removed = true
+      }
+    }
+    if (!removed && retained.length === runtime.state.activeBlockIds.length &&
+        retained.every((id, i) => id === runtime.state.activeBlockIds[i])) return
+    const active = new Set(retained)
+    for (const block of Object.values(runtime.state.blocks)) block.active = active.has(block.blockId)
+    runtime.state.activeBlockIds = retained
+    runtime.state.nudgeAnchors = []
+    runtime.state.pruneAckSeq = runtime.state.pruneSeq
+    await this.persist(sessionId)
+  }
+
+  /** Drops all DCP edits for a session (native compaction / deletion). */
   reset(sessionId: string): void {
     this.memory.delete(sessionId)
     void this.storage?.remove(`session/${sessionId}`)?.catch(() => {})
@@ -82,6 +121,15 @@ export class StateStore {
 
 /** Sentinel anchor key meaning "append at transcript tail". */
 export const TAIL_ANCHOR = "tail"
+
+/** Recover the fixed compression-time boundary, including legacy tail anchors. */
+export function compressionAnchorIndex(block: CompressionBlock, positions: ReadonlyMap<string, number>, length: number): number {
+  const successor = block.anchorKey === TAIL_ANCHOR ? undefined : positions.get(block.anchorKey)
+  if (successor !== undefined) return successor
+  let last = -1
+  for (const key of block.coveredKeys) last = Math.max(last, positions.get(key) ?? -1)
+  return last < 0 ? length : last + 1
+}
 
 export function allocateBlockId(state: SessionState): number {
   const blockId = state.nextBlockId++

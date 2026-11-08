@@ -49,7 +49,7 @@ const DEFAULTS: DcpOptions = {
   enabled: true,
   debug: false,
   allowSubAgents: false,
-  maxContextLimit: "70%",
+  maxContextLimit: "60%",
   nudgeFrequency: 5,
   iterationNudgeThreshold: 0,
   protectedTools: [],

@@ -8,6 +8,7 @@ import {
   type PruneToolEditor,
 } from "./lib/prune-tool";
 import { resolveOptions } from "./lib/config";
+import { effectiveContextLimit } from "./lib/constants";
 import { registerCommands } from "./lib/commands";
 import { startEventPump } from "./lib/events";
 import { createLogger } from "./lib/logger";
@@ -100,7 +101,7 @@ export default Plugin.define({
           const models = unwrapList<{
             providerID: string;
             id: string;
-            limit?: { context?: number };
+            limit?: { context?: number; input?: number };
           }>(response);
           // An unparseable payload is a failed listing, not an empty catalog:
           // fall through to the retry gate instead of poisoning the cache.
@@ -109,7 +110,7 @@ export default Plugin.define({
             if (typeof model?.providerID === "string" && typeof model?.id === "string") {
               contextLimits.set(
                 `${model.providerID}/${model.id}`,
-                typeof model.limit?.context === "number" ? model.limit.context : undefined,
+                effectiveContextLimit(model.limit),
               );
             }
           }

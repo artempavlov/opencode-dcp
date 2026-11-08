@@ -14,7 +14,7 @@ import { pruneToolDefinition } from "../lib/prune-tool";
 import { estimateTokens, measureMessagesChars } from "../lib/tui-bridge";
 import type { SystemPart, WireMessage } from "../lib/types";
 
-const CONFIG = resolveOptions(undefined, () => {});
+const CONFIG = resolveOptions({ maxContextLimit: "70%" }, () => {});
 const SESSION = "ses_transform";
 
 function fixture(): WireMessage[] {

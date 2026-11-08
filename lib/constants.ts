@@ -15,6 +15,14 @@
  */
 export const FALLBACK_CONTEXT_WINDOW = 200_000;
 
+/** Providers may accept fewer input tokens than their advertised total window. */
+export function effectiveContextLimit(limit?: { context?: number; input?: number }): number | undefined {
+  const values = [limit?.context, limit?.input].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
+  );
+  return values.length ? Math.min(...values) : undefined;
+}
+
 /** Cap on stored nudge rate-limit anchors (oldest anchor is dropped first). */
 export const NUDGE_ANCHOR_CAP = 8;
 

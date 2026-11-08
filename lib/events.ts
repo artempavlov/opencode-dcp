@@ -9,7 +9,7 @@ import type { TranscriptMirror } from "./transcript/mirror"
  * - `session.usage.updated`  -> per-session context usage (drives nudges)
  * - `session.compaction.started|ended` -> native compaction rewrites history
  * - `session.compaction.failed`  -> started already reset; history unchanged
- * - `session.revert.committed` -> history truncated: reset DCP
+ * - `session.revert.committed` -> preserve summaries for the surviving prefix
  * - `session.forked`          -> new session id, parent's blocks do not apply
  * - `session.deleted`        -> drop all session state
  *
@@ -78,10 +78,23 @@ export function startEventPump(input: {
               })
               break
             }
+            case "session.revert.committed": {
+              if (!sessionId) break
+              const index = mirror.get(sessionId)
+              const boundary = index?.messages.findIndex((message) => message.id === data.to) ?? -1
+              mirror.drop(sessionId)
+              usage.reset(sessionId)
+              disarmManualPruneReminder(sessionId)
+              // The mirror can predate the removed turn. In that case the next
+              // context hook reconciles against the authoritative transcript.
+              if (index && boundary >= 0) {
+                await store.reconcile(sessionId, index.keys.slice(0, boundary))
+              }
+              break
+            }
             case "session.compaction.started":
             case "session.compaction.ended":
             case "session.compaction.failed":
-            case "session.revert.committed":
             case "session.forked":
             case "session.deleted": {
               if (!sessionId) break

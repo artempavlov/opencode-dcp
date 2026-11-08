@@ -8,7 +8,7 @@ import { qualifiedToolName, toolResultToText, type ToolResultValue, type WireMes
  * (when unique), otherwise the positional form `${role}#${index}`. Positional
  * keys shift after a compression, so id-less tool results prefer the callId
  * form, which survives range removal. Transcript prefixes are append-only
- * between compactions/reverts (which reset DCP state), so keys stay stable
+ * between compactions/reverts (which reconcile DCP coverage), so keys stay stable
  * across requests and can be persisted inside compression blocks.
  */
 

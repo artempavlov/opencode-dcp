@@ -135,6 +135,8 @@ export function createContextHook(deps: TransformDeps) {
       // today's scan keys before any covered-set is built (masking, ref skip,
       // boundary resolution all read block.coveredKeys).
       normalizeLegacyBlockKeys(runtime.state, index.keys, index.messages);
+      // Also covers reverts committed while the plugin was disconnected.
+      await deps.store.reconcile(sessionId, index.keys);
 
       const charsBefore = measureMessagesChars(messages);
 

@@ -8,6 +8,34 @@ tool outputs, and nudging when context pressure crosses a budget.
 
 Requires [OpenCode V2](https://opencode.ai/v2/docs).
 
+## Fork fixes (2.0.5-fork.1)
+
+- Committed reverts keep compression blocks for the surviving history instead
+  of deleting all persisted summaries. A block that crosses the cutoff is
+  excluded in full; surviving older blocks consumed by it are restored.
+- The context hook also checks coverage after a restart or missed event.
+  This prevents a summary from exposing text removed by a revert.
+- Legacy `tail` anchors stay at their original compression boundary, preserving
+  chronological order and the prompt-cache prefix when new turns are appended.
+- The pruning budget defaults to 60% of the smaller positive finite
+  `limit.context` / `limit.input` ceiling (200,000 tokens when neither is known).
+
+Build and verify with `npm run typecheck`, `npm test`, `npm run build`, and
+`npm run test:runtime`. The runtime test starts an isolated V2 server and a local
+fake provider; it does not use real provider credentials or existing sessions.
+Set `OPENCODE_V2_BINARY` to test another installed V2 executable, or
+`DCP_PLUGIN_SOURCE` to test an installed plugin directory.
+
+To upgrade the existing `opencode-dcp-local` vendored installation after building:
+
+```sh
+node scripts/install-local.mjs /absolute/path/to/local-plugins/dcp
+```
+
+The installer leaves plugin configuration, options, identity, and session KV
+storage unchanged. It does not restore summaries already deleted by an older
+version. No npm release is required to use this local fork.
+
 ## Install
 
 ```sh
@@ -28,7 +56,7 @@ To configure it in a project, add it to `opencode.jsonc` (or
     {
       "package": "opencode-dcp",
       "options": {
-        "maxContextLimit": "70%"
+        "maxContextLimit": "60%"
       }
     }
   ]

@@ -5,7 +5,7 @@ import { resolveLimit, resolveOptions } from "../lib/config";
 import { UsageTracker, maybeContextNudge, maybeIterationNudge, maybePruneAck, usageTotal } from "../lib/nudges";
 import { CONTEXT_LIMIT_NUDGE } from "../lib/prompts";
 
-const CONFIG = resolveOptions(undefined, () => {});
+const CONFIG = resolveOptions({ maxContextLimit: "70%" }, () => {});
 
 test("usageTotal sums all token buckets", () => {
   assert.equal(
@@ -92,7 +92,7 @@ test("absolute token budgets and unknown windows behave sanely", () => {
 
   // Malformed values fall back to the default.
   const invalid = resolveOptions({ maxContextLimit: "abc" }, () => {});
-  assert.equal(invalid.maxContextLimit, CONFIG.maxContextLimit);
+  assert.equal(invalid.maxContextLimit, "60%");
 
   const zeroWindow = maybeContextNudge({
     state: { nudgeAnchors: [] },
