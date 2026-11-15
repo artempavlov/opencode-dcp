@@ -23,7 +23,38 @@ correctly. A short real DeepSeek fixture succeeded before and after the patch;
 it does not reproduce the user's long-context failure. Private long-context
 replays and their limitations are recorded under ignored `.tmp/`.
 
-## Verified deployment — 2026-11-15
+## Auxiliary generation — prepared, not installed
+
+OpenCode 2.2.5's native goal reviewer uses `session.generate`, not the primary
+`context` hook. Without a separate hook it sends raw history even after a
+successful DCP prune. A reviewer overflow can automatically admit a native
+compaction marked `reason: "manual"`; that label does not imply a user click.
+
+Version `2.0.5-fork.3` registers a read-only `generate` transform:
+
+- Reuse saved summaries and tool-output removals on a detached snapshot.
+- Do not initialize a primary runtime, update refs or the transcript mirror,
+  seed usage, acknowledge pruning, add reminders, or write storage.
+- Apply only blocks whose entire covered range is present. If a parent is
+  incomplete, reuse complete child blocks on the snapshot, never the saved graph.
+- Skip internal agents and respect `allowSubAgents`. Leave system instructions,
+  tools, options and the goal review prompt unchanged.
+- Leave native compaction available if the compressed request still overflows.
+
+An isolated official 2.2.5 server, the built-in `/goal` command and a loopback
+provider reproduce the failure without touching a working session. Before this
+hook, a completed prune was followed by two reviewer overflows and an automatic
+manual-labelled compaction request. With the hook, the reviewer receives the
+saved summary, completes the goal, and admits no compaction. A separate forced
+overflow case verifies that Core still admits its native fallback. It does not
+test checkpoint quality or guarantee that every real model request will fit.
+
+This release is **not installed**. The installed copy remains `2.0.5-fork.2`;
+no live reload, restart, configuration change or user-session mutation was made
+for this change. The read-only installer plan recognizes that prior release.
+Installation and activation must preserve the owner's uninterrupted sessions.
+
+## Previous verified deployment — 2026-11-15
 
 Installed `2.0.5-fork.2` on artem-laptop, preserving the existing registration
 and options. A successful five-group `snapshot-create` preceded installation.
@@ -67,13 +98,16 @@ bun test
 ```
 
 The suite preserves prior fixed-prefix/cache, input-aware-budget and official
-2.2.5 runtime tests, and adds boundary recovery and no-mutation checks. All
+2.2.5 runtime tests, and adds boundary recovery, auxiliary generation and
+no-mutation checks. All
 runtime fixtures use a private server and loopback mock, not production sessions.
-The final suite passed 20 tests with 98 assertions across six files.
+The suite passed 33 tests with 151 assertions across eight files.
 The sequence fixture also reloads its private location while a mock model request
 is held, and verifies that the request finishes without cancelling the turn or
 restarting the private server. Installer tests verify read-only planning,
-idempotence and rejection of unrecognized target edits.
+idempotence, recognized-version upgrades and rejection of unrecognized target
+edits. Auxiliary tests check cold storage reads, snapshot isolation, partial
+range safety, exclusions, output removals and atomic failure handling.
 
 Review `bun install.ts` before `bun install.ts --apply`. This updates only the
 known local DCP files; it does not modify configuration, reload OpenCode, or

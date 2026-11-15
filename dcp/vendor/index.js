@@ -652,6 +652,15 @@ var StateStore = class {
   peek(sessionId) {
     return this.memory.get(sessionId);
   }
+  /** Detached read for auxiliary requests; never initialize or persist a runtime. */
+  async snapshot(sessionId) {
+    const cached = this.peek(sessionId);
+    if (cached) return structuredClone(cached.state);
+    if (!this.storage) return;
+    const stored = await this.storage.get(`session/${sessionId}`);
+    if (stored === void 0) return;
+    return hydrateSessionState(structuredClone(stored), sessionId);
+  }
   async ensure(sessionId) {
     const cached = this.memory.get(sessionId);
     if (cached) return cached;
@@ -2053,6 +2062,44 @@ function sessionTotals(state) {
     messagesCompressedActive: new Set(active.flatMap((block) => block.coveredKeys)).size
   };
 }
+function createGenerateHook(deps) {
+  return async function handleGenerate(event) {
+    try {
+      if (INTERNAL_AGENTS.has(event.agent)) return;
+      if (!Array.isArray(event.messages) || event.messages.length === 0) return;
+      if (!deps.config.allowSubAgents && await deps.isSubAgent(event.sessionID)) return;
+      const state = await deps.store.snapshot(event.sessionID);
+      if (!state) return;
+      const messages = [...event.messages];
+      const index = scanTranscript(messages);
+      normalizeLegacyBlockKeys(state, index.keys, messages);
+      const present = new Set(index.keys);
+      const retained = new Set();
+      const seen = new Set();
+      const visit = (id) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        const block = state.blocks[String(id)];
+        if (!block) return;
+        if (block.coveredKeys.length > 0 && block.coveredKeys.every((key) => present.has(key))) {
+          retained.add(id);
+        } else {
+          for (const child of block.consumedBlockIds) visit(child);
+        }
+      };
+      for (const id of state.activeBlockIds) visit(id);
+      state.activeBlockIds = [...retained];
+      for (const block of Object.values(state.blocks)) block.active = retained.has(block.blockId);
+      applyCompressionBlocks(state, messages, index.keys);
+      pruneToolOutputs(state, messages, deps.config);
+      event.messages.splice(0, event.messages.length, ...messages);
+    } catch (error) {
+      deps.logger.warn("generate transform failed; passing unmodified context", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  };
+}
 function createContextHook(deps) {
   return async function handleContext(event) {
     try {
@@ -2345,6 +2392,7 @@ var index_default = Plugin.define({
         lastModel.set(typed.sessionID, { providerID: typed.model.providerID, id: typed.model.id });
       await handleContext(typed);
     });
+    await ctx.session.hook("generate", createGenerateHook({ config, logger, store, isSubAgent }));
     let registrationWarned = false;
     const warnRegistration = (message) => {
       if (registrationWarned) return;

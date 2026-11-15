@@ -9,6 +9,12 @@
   state. Recovery hints are navigation, not authorization.
 - Active-ID catalogues belong in existing outbound tail reminders, not a
   per-session dynamic tool definition or system prefix. Preserve prefix caching.
+- Auxiliary `generate` requests reuse saved edits through detached snapshots.
+  Never run the primary context pipeline there: no ref projection, mirror or
+  usage updates, acknowledgement, reminders, new pruning or storage writes.
+  Apply only whole covered ranges, respecting internal-agent/subagent exclusions.
+  Keep native compaction as an overflow fallback; test the built-in goal path
+  on a private official-runtime fixture, not on a working user session.
 - Run `bun test`, including official-runtime fixtures, before installation.
   Live-model checks must use isolated fixtures or read-only reconstruction;
   never inject prompts, prune, compact, or rewrite the user's working session.

@@ -1,4 +1,4 @@
-# Local DCP: stable prefixes, input-aware budgets and current boundary recovery
+# Local DCP: stable prefixes, boundary recovery and auxiliary context
 
 ## Current standalone maintenance
 
@@ -15,6 +15,16 @@ compressed IDs; historical tool calls are not a current boundary catalogue.
 
 No changes to plugin ID, saved state, compression semantics, registration,
 per-model limits, system-prefix caching, tool descriptions or TUI behavior.
+
+Version `2.0.5-fork.3` also registers a separate `generate` hook. Transient
+session generation, including the native goal reviewer, reuses saved summaries
+and tool-output removals on a detached state snapshot. It does not create refs,
+update the primary transcript mirror, acknowledge pruning, add reminders or
+persist state. Only whole summaries matching the outgoing history are applied;
+an incomplete parent can fall back to whole child summaries without changing
+the saved block graph. Internal agents and excluded subagents are skipped.
+Native compaction remains available if this smaller request still overflows.
+See the standalone README for isolated runtime tests and installation status.
 
 Local fix for `opencode-dcp@2.0.4`. The server bundle, TUI and license come
 from [arafays/opencode-dcp](https://github.com/arafays/opencode-dcp).

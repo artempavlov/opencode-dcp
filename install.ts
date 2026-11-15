@@ -6,12 +6,12 @@ const root=import.meta.dir
 const args=process.argv.slice(2)
 const flag=args.indexOf("--target")
 const target=flag>=0?path.resolve(args[flag+1]!):path.join(os.homedir(),".local/share/opencode-v2/config/opencode/local-plugins/dcp")
-const baseline=JSON.parse(await readFile(path.join(root,"upstream-fingerprints.json"),"utf8")) as Record<string,string>
+const baseline=JSON.parse(await readFile(path.join(root,"upstream-fingerprints.json"),"utf8")) as Record<string,string|string[]>
 const sha=(data:Uint8Array)=>createHash("sha256").update(data).digest("hex")
 const files=await Promise.all(Object.keys(baseline).map(async name=>{
  const source=await readFile(path.join(root,"dcp",name));const current=await readFile(path.join(target,name))
  const from=sha(current),to=sha(source)
- if(from!==baseline[name]&&from!==to)throw Error(`Refusing to overwrite unrecognized changes in ${name}`)
+  if(![baseline[name]].flat().includes(from)&&from!==to)throw Error(`Refusing to overwrite unrecognized changes in ${name}`)
  return {name,source,from,to,changed:from!==to}
 }))
 console.log(JSON.stringify({target,apply:args.includes("--apply"),files:files.map(({name,from,to,changed})=>({name,from,to,changed}))},null,2))
