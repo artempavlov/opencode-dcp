@@ -13,11 +13,17 @@ await mkdir(path.join(cfg, "no-title"))
 await Bun.write(path.join(cfg,"no-title/package.json"), JSON.stringify({name:"fixture-no-title",type:"module",main:"index.ts"}))
 await Bun.write(path.join(cfg,"no-title/index.ts"), `import {Plugin} from "@opencode/plugin"; export default Plugin.define({id:"fixture.no-title",async setup(ctx){await ctx.session.hook("title",e=>{e.result="DCP sequence"})}})`)
 const calls:any[]=[]
+let persistReached!:()=>void,releasePersist!:()=>void
+const persisting=new Promise<void>(resolve=>{persistReached=resolve})
+const continuePersist=new Promise<void>(resolve=>{releasePersist=resolve})
 let reached!:()=>void
 const pendingRequest=new Promise<void>(resolve=>{reached=resolve})
 let release!:()=>void
 const releaseRequest=new Promise<void>(resolve=>{release=resolve})
 const endpoint=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
+  if(new URL(request.url).pathname==="/hold-prune"){
+    persistReached();await continuePersist;return new Response("continue")
+  }
   const body:any=await request.json(); calls.push(body)
   const n=calls.length
   if(n===5){reached();await releaseRequest}
@@ -30,6 +36,12 @@ const endpoint=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
     {id:`mock-${n}`,object:"chat.completion.chunk",choices:[{index:0,delta:{},finish_reason:n<=3?"tool_calls":"stop"}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}}]
   return new Response(chunks.map(c=>`data: ${JSON.stringify(c)}\n\n`).join("")+"data: [DONE]\n\n",{headers:{"content-type":"text/event-stream"}})
 }})
+// Force a real plugin replacement while the old tool executor is persisting.
+// Restore the pristine bundle before reload; only this private copy is edited.
+const bundle=path.join(cfg,"dcp/vendor/index.js")
+const pristine=await Bun.file(bundle).text()
+if(!pristine.includes("async persist(sessionId) {"))throw Error("Missing persist fixture seam")
+await Bun.write(bundle,pristine.replace("async persist(sessionId) {",`async persist(sessionId) { await fetch(${JSON.stringify(`${endpoint.url}hold-prune`)});`))
 await Bun.write(path.join(cfg,"opencode.jsonc"),JSON.stringify({
   providers:{fixture:{package:"@opencode/ai/providers/openai/chat",settings:{baseURL:`${endpoint.url}v1`,apiKey:"fixture"},models:{model:{limit:{context:168000,input:168000,output:8192}}}}},
   model:"fixture/model",plugins:[{package:"./dcp",options:{maxContextLimit:"60%"}},"./no-title"],
@@ -46,6 +58,12 @@ try{
   await client.model.list({location:{directory:root}})
   const s=await client.session.create({location:{directory:root}})
   await client.session.prompt({sessionID:s.id,text:"Fixture history. ".repeat(3500),resume:true})
+  await Promise.race([persisting,Bun.sleep(10000).then(()=>{throw Error("Prune did not reach its persistence boundary")})])
+  await Bun.write(bundle,pristine)
+  const replacing=fetch(`${url}/api/location/reload`,{method:"POST",headers:{Authorization:`Basic ${btoa("opencode:fixture")}`,"Content-Type":"application/json"},body:JSON.stringify({directory:root})})
+  await Bun.sleep(500)
+  releasePersist()
+  if(!(await replacing).ok)throw Error("Plugin replacement during prune failed")
   await client.experimental.session.wait({sessionID:s.id})
   const records=calls.map((c,i)=>({dispatch:i+1,refs:[...JSON.stringify(c.messages).matchAll(/<dcp-message-id>([mb]\d+)<\/dcp-message-id>/g)].map(m=>m[1]),
     description_chars:c.tools?.find((t:any)=>t.function?.name==="prune")?.function?.description?.length,
@@ -72,5 +90,5 @@ try{
   const history:any=await(await fetch(`${url}/api/session/${s.id}/message`,{headers:{Authorization:`Basic ${btoa("opencode:fixture")}`}})).json()
   if(!history.data?.some((m:any)=>m.type==="assistant"&&m.time.created>=started&&m.finish==="stop"&&m.content?.some((p:any)=>p.type==="text"&&p.text==="DONE")))throw Error("Reload cancelled the held active turn")
   if(child.exitCode!==null)throw Error("Reload restarted or stopped the private server")
-}finally{release();child.kill();await child.exited;await errors;endpoint.stop(true)}
+}finally{release();releasePersist();child.kill();await child.exited;await errors;endpoint.stop(true)}
 },60000)

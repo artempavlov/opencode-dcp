@@ -1,10 +1,10 @@
 import { OpenCode } from "@opencode/client"
 import { expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { cp, mkdir, mkdtemp } from "node:fs/promises"
+import { appendFile, cp, mkdir, mkdtemp } from "node:fs/promises"
 import path from "node:path"
 
-test.each([false, true])("native goal uses saved DCP history and retains overflow fallback (force overflow: %s)", async (forceOverflow) => {
+test.each([[false, false], [true, false], [false, true]])("native goal preserves DCP and overflow fallback (overflow: %s, reload: %s)", async (forceOverflow, reload) => {
   const project = path.resolve(import.meta.dir, "..")
   await mkdir(path.join(project, ".tmp"), { recursive: true })
   const root = await mkdtemp(path.join(project, ".tmp/dcp-goal-"))
@@ -20,12 +20,16 @@ export default Plugin.define({id:"fixture.probe",async setup(ctx){
   const marker = "UNCOMPRESSED_FIXTURE_HISTORY"
   const calls: any[] = []
   let primary = 0, reviews = 0, overflows = 0
+  let reviewReached!: () => void, releaseReview!: () => void
+  const reviewingNow = new Promise<void>(resolve => { reviewReached = resolve })
+  const continueReview = new Promise<void>(resolve => { releaseReview = resolve })
   const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body: any = await request.json(); calls.push(body)
     const reviewing = JSON.stringify(body.messages.at(-1)).includes("verdict")
     if (!body.stream || reviewing) {
       if (reviewing) {
         reviews++
+        if (reload && reviews === 1) { reviewReached(); await continueReview }
         if (forceOverflow || JSON.stringify(body.messages).includes(marker)) {
           overflows++
           return Response.json({ error: { message: "maximum context length exceeded", type: "invalid_request_error", code: "context_length_exceeded" } }, { status: 400 })
@@ -64,6 +68,15 @@ export default Plugin.define({id:"fixture.probe",async setup(ctx){
     const session = await client.session.create({ location: { directory: root } })
     await client.session.prompt({ sessionID: session.id, text: `${marker} `.repeat(2500), resume: false })
     await client.session.command({ sessionID: session.id, name: "goal", text: "Finish the fixture objective" })
+    if (reload) {
+      await Promise.race([reviewingNow, Bun.sleep(10000).then(() => { throw Error("Reviewer did not reach the fixture") })])
+      await appendFile(path.join(cfg, "dcp/vendor/index.js"), "\n// Private reload fixture\n")
+      const replacing = fetch(`${url}/api/location/reload`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ directory: root }) })
+      await Bun.sleep(500)
+      releaseReview()
+      expect((await replacing).ok).toBe(true)
+      expect(child.exitCode).toBe(null)
+    }
     const db = new Database(path.join(root, "data/opencode/opencode.db"), { readonly: true })
     db.exec("PRAGMA query_only=ON")
     const key = "plugin:" + [..."opencode.goal"].map(c => c.charCodeAt(0).toString(16).padStart(4, "0")).join("") + ":session:" + session.id
@@ -98,5 +111,5 @@ export default Plugin.define({id:"fixture.probe",async setup(ctx){
       expect(compactions).toHaveLength(0)
       expect(primary).toBe(2)
     }
-  } finally { child.kill(); await child.exited; await errors; endpoint.stop(true) }
+  } finally { releaseReview(); child.kill(); await child.exited; await errors; endpoint.stop(true) }
 }, 60000)

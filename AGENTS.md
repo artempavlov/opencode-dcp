@@ -28,3 +28,7 @@
 - The owner explicitly requires uninterrupted running sessions. Installation
   does not authorize a reload or restart; do not interrupt active sessions.
   Keep reload/concurrency experiments confined to private test servers.
+- The reviewed fork.3 deployment also tested plugin replacement during prune
+  persistence and an in-flight native goal review. Check current sessions and
+  process/config invariants again before any future authorized live activation;
+  those fixture results are not blanket permission for subsequent reloads.

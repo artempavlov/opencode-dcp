@@ -23,7 +23,7 @@ correctly. A short real DeepSeek fixture succeeded before and after the patch;
 it does not reproduce the user's long-context failure. Private long-context
 replays and their limitations are recorded under ignored `.tmp/`.
 
-## Auxiliary generation — prepared, not installed
+## Auxiliary generation — installed 2026-11-15
 
 OpenCode 2.2.5's native goal reviewer uses `session.generate`, not the primary
 `context` hook. Without a separate hook it sends raw history even after a
@@ -49,10 +49,21 @@ saved summary, completes the goal, and admits no compaction. A separate forced
 overflow case verifies that Core still admits its native fallback. It does not
 test checkpoint quality or guarantee that every real model request will fit.
 
-This release is **not installed**. The installed copy remains `2.0.5-fork.2`;
-no live reload, restart, configuration change or user-session mutation was made
-for this change. The read-only installer plan recognizes that prior release.
-Installation and activation must preserve the owner's uninterrupted sessions.
+Installed `2.0.5-fork.3` after the owner authorized activation if safe. A fresh
+five-group `snapshot-create` succeeded; the fingerprint-checked installer replaced
+only the bundle, maintenance README and package version. The reviewed location
+hot reload succeeded without a server restart. Eight preexisting long-lived
+OpenCode processes retained their PIDs and start times, and five protected
+configuration files remained byte-identical. Read-only inspection found two new
+neighbouring-session messages and no new error finishes after activation; no
+prompts, pruning, compaction or history/state edits were injected there.
+
+Before deployment, private runtime fixtures verified real plugin replacement
+while the old prune executor was awaiting persistence, and while the native goal
+reviewer was awaiting its model response. The saved blocks survived and the goal
+completed without compaction. These checks cover the tested concurrency paths,
+not a promise that every future reload or model request is safe. Private
+deployment evidence is under `~/.tmp/litellm-combos/generate-deploy-*.json`.
 
 ## Previous verified deployment — 2026-11-15
 
@@ -101,7 +112,7 @@ The suite preserves prior fixed-prefix/cache, input-aware-budget and official
 2.2.5 runtime tests, and adds boundary recovery, auxiliary generation and
 no-mutation checks. All
 runtime fixtures use a private server and loopback mock, not production sessions.
-The suite passed 33 tests with 151 assertions across eight files.
+The suite passed 34 tests with 162 assertions across eight files.
 The sequence fixture also reloads its private location while a mock model request
 is held, and verifies that the request finishes without cancelling the turn or
 restarting the private server. Installer tests verify read-only planning,
