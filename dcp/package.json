@@ -1,0 +1,11 @@
+{
+  "name": "opencode-dcp-local",
+  "version": "2.0.5-fork.2",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./tui": "./tui.tsx"
+  }
+}
