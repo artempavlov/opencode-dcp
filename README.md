@@ -8,7 +8,7 @@ tool outputs, and nudging when context pressure crosses a budget.
 
 Requires [OpenCode V2](https://opencode.ai/v2/docs).
 
-## Fork fixes (2.0.5-fork.1)
+## Fork fixes (2.0.5-fork.3)
 
 - Committed reverts keep compression blocks for the surviving history instead
   of deleting all persisted summaries. A block that crosses the cutoff is
@@ -19,6 +19,11 @@ Requires [OpenCode V2](https://opencode.ai/v2/docs).
   chronological order and the prompt-cache prefix when new turns are appended.
 - The pruning budget defaults to 60% of the smaller positive finite
   `limit.context` / `limit.input` ceiling (200,000 tokens when neither is known).
+- Prune reminders list active compressed blocks in transcript order. Errors
+  show valid boundaries and covering parents without substituting a range.
+- Transient `session.generate` requests, including `/goal` reviews, reuse
+  saved summaries and tool-output removals without changing session state.
+  Partial summaries are excluded and native overflow handling still works.
 
 Build and verify with `npm run typecheck`, `npm test`, `npm run build`, and
 `npm run test:runtime`. The runtime test starts an isolated V2 server and a local

@@ -30,6 +30,14 @@ export class StateStore {
     return this.memory.get(sessionId)
   }
 
+  /** Detached read for auxiliary requests; never initialize or persist a runtime. */
+  async snapshot(sessionId: string): Promise<SessionState | undefined> {
+    const cached = this.peek(sessionId)
+    if (cached) return structuredClone(cached.state)
+    const stored = await this.storage?.get(`session/${sessionId}`)
+    return stored === undefined ? undefined : hydrateSessionState(structuredClone(stored), sessionId)
+  }
+
   async ensure(sessionId: string): Promise<SessionRuntime> {
     const cached = this.memory.get(sessionId)
     if (cached) return cached

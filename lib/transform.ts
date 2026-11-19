@@ -92,6 +92,45 @@ export interface TransformDeps {
   }): void;
 }
 
+/** Reuse existing outbound edits for transient generation without a live runtime. */
+export function createGenerateHook(deps: Pick<TransformDeps, "config" | "logger" | "store" | "isSubAgent">) {
+  return async (event: Pick<SessionContextEvent, "agent" | "sessionID" | "messages">): Promise<void> => {
+    try {
+      if (INTERNAL_AGENTS.has(event.agent) || !Array.isArray(event.messages) || !event.messages.length) return;
+      if (!deps.config.allowSubAgents && await deps.isSubAgent(event.sessionID)) return;
+      const state = await deps.store.snapshot(event.sessionID);
+      if (!state) return;
+      const messages = [...event.messages];
+      const index = scanTranscript(messages);
+      normalizeLegacyBlockKeys(state, index.keys, messages);
+      const present = new Set(index.keys);
+      const retained = new Set<number>();
+      const seen = new Set<number>();
+      const visit = (id: number): void => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        const block = state.blocks[String(id)];
+        if (!block) return;
+        if (block.coveredKeys.length && block.coveredKeys.every((key) => present.has(key))) {
+          retained.add(id);
+        } else {
+          for (const child of block.consumedBlockIds) visit(child);
+        }
+      };
+      for (const id of state.activeBlockIds) visit(id);
+      state.activeBlockIds = [...retained];
+      for (const block of Object.values(state.blocks)) block.active = retained.has(block.blockId);
+      applyCompressionBlocks(state, messages, index.keys);
+      pruneToolOutputs(state, messages, deps.config);
+      event.messages.splice(0, event.messages.length, ...messages);
+    } catch (error) {
+      deps.logger.warn("generate transform failed; passing unmodified context", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+}
+
 /** Summarizes persisted session state for the TUI snapshot. */
 export function sessionTotals(state: SessionState): SessionTotals {
   const active = state.activeBlockIds
@@ -364,6 +403,24 @@ async function injectNudges(
   if (iterationNudge) reminders.push(iterationNudge);
 
   if (reminders.length > 0 && event.messages.length > 0) {
+    if (canPrune && state.activeBlockIds.length) {
+      const active = new Set(state.activeBlockIds.map(formatBlockRef));
+      const ordered = new Set<string>();
+      for (const message of event.messages) {
+        if (message.role !== "user") continue;
+        for (const part of message.content) {
+          if (part.type !== "text") continue;
+          for (const [, id] of part.text.matchAll(/<dcp-message-id>(b\d+)<\/dcp-message-id>/g)) {
+            if (id && active.has(id)) ordered.add(id);
+          }
+        }
+      }
+      if (ordered.size) reminders.push([
+        "CURRENT ACTIVE COMPRESSED BLOCKS (earliest to latest):",
+        ...[...ordered].map((id, i) => `${i + 1}. ${id}`),
+        "Only these b-IDs are valid now. The list numbers are chronological positions, not IDs: send bare b-IDs. Use start position <= end position; for one block use the same ID twice. Do not sort b-IDs numerically or infer missing b-numbers. Earlier tool calls/results contain historical IDs. For raw messages copy current mNNNN tags. This catalogue is not an instruction to prune again.",
+      ].join("\n"));
+    }
     event.messages.push(createSyntheticBlockMessage(reminders.join("\n\n")));
   }
 }

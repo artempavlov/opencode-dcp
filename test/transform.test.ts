@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createContextHook } from "../lib/transform";
+import { createContextHook, createGenerateHook } from "../lib/transform";
 import type { TransformDeps } from "../lib/transform";
 import { resolveOptions } from "../lib/config";
 import { createLogger } from "../lib/logger";
@@ -127,6 +127,80 @@ function remindersOf(messages: WireMessage[]): string {
     .filter((text) => text.includes("dcp-system-reminder"))
     .join("\n");
 }
+
+test("stale and reversed boundaries fail without changing compression state", async () => {
+  const { store, hook, mirror, deps } = harness({
+    config: resolveOptions({ maxContextLimit: 1, nudgeFrequency: 1 }, () => {}),
+  });
+  const runtime = await store.ensure(SESSION);
+  const save = (coveredKeys: string[], consumedBlockIds: number[] = []) => applyCompression({
+    state: runtime.state, refs: runtime.refs, topic: "Fixture", summary: "Saved summary",
+    coveredKeys, coveredToolIds: [], coveredTokens: 100, consumedBlockIds, anchorKey: "tail",
+  });
+  const child = save(["id:u1"]);
+  const later = save(["id:u2"]);
+  const parent = save(["id:u1"], [child.blockId]);
+  const ordered = `b${parent.blockId}, b${later.blockId}`;
+  const messages = fixture();
+  await run(hook, messages);
+  assert.match(remindersOf(messages), new RegExp(`1\\. b${parent.blockId}\\n2\\. b${later.blockId}`));
+  const tool = pruneToolDefinition({
+    store, mirror, logger: deps.logger, config: deps.config,
+    getModelContextLimit: () => 200_000, getUsageTokens: () => 0,
+  });
+  const before = structuredClone(runtime.state);
+  for (const [startId, endId, explanation] of [
+    [`b${child.blockId}`, `b${child.blockId}`, `now covered by b${parent.blockId}`],
+    [`b${later.blockId}`, `b${parent.blockId}`, "appears after"],
+    ["m9999", "m9999", "does not exist"],
+  ] as const) {
+    await assert.rejects(tool.execute({ topic: "Fixture", content: [{ startId, endId, summary: "Never applied" }] }, { sessionID: SESSION }), (error: Error) => {
+      assert.ok(error.message.includes(explanation));
+      assert.ok(error.message.includes(`Active compressed blocks: ${ordered}`));
+      assert.match(error.message, /No compression was performed/);
+      return true;
+    });
+    assert.deepEqual(runtime.state, before);
+  }
+});
+
+test("auxiliary generation reads a cold snapshot and falls back to whole children", async () => {
+  const stored = new Map<string, unknown>();
+  let writes = 0;
+  const storage = {
+    async get(key: string) { return stored.get(key); },
+    async set(key: string, value: unknown) { writes++; stored.set(key, value); },
+    async remove(key: string) { stored.delete(key); },
+  };
+  const source = new StateStore(storage);
+  const runtime = await source.ensure(SESSION);
+  const save = (summary: string, coveredKeys: string[], consumedBlockIds: number[] = []) => applyCompression({
+    state: runtime.state, refs: runtime.refs, topic: "Fixture", summary,
+    coveredKeys, coveredToolIds: [], coveredTokens: 100, consumedBlockIds, anchorKey: "tail",
+  });
+  const child = save("Whole child summary", ["id:u1"]);
+  save("Whole parent summary", ["id:u1", "id:u2"], [child.blockId]);
+  await source.persist(SESSION);
+  const before = structuredClone(stored);
+  const store = new StateStore(storage);
+  const { deps } = harness({ store });
+  const hook = createGenerateHook(deps);
+  const complete = fixture();
+  await hook({ sessionID: SESSION, agent: "build", messages: complete });
+  assert.match(JSON.stringify(complete), /Whole parent summary/);
+  const partial = fixture().filter((m) => m.id !== "u2");
+  await hook({ sessionID: SESSION, agent: "build", messages: partial });
+  assert.match(JSON.stringify(partial), /Whole child summary/);
+  assert.doesNotMatch(JSON.stringify(partial), /Whole parent summary|explore auth|dcp-system-reminder/);
+  const excluded = fixture();
+  await hook({ sessionID: SESSION, agent: "compaction", messages: excluded });
+  assert.deepEqual(excluded, fixture());
+  await createGenerateHook({ ...deps, isSubAgent: async () => true })({ sessionID: SESSION, agent: "build", messages: excluded });
+  assert.deepEqual(excluded, fixture());
+  assert.equal(store.peek(SESSION), undefined);
+  assert.equal(writes, 1);
+  assert.deepEqual(stored, before);
+});
 
 /** Returns mNNNN/bN tags attached to each outbound message, in order. */
 function tagsOf(messages: WireMessage[]): string[] {

@@ -14,7 +14,7 @@ import { startEventPump } from "./lib/events";
 import { createLogger } from "./lib/logger";
 import { UsageTracker } from "./lib/nudges";
 import { StateStore } from "./lib/state/store";
-import { createContextHook, sessionTotals, type SessionContextEvent } from "./lib/transform";
+import { createContextHook, createGenerateHook, sessionTotals, type SessionContextEvent } from "./lib/transform";
 import { TranscriptMirror } from "./lib/transcript/mirror";
 import {
   buildStatsSnapshot,
@@ -215,6 +215,9 @@ export default Plugin.define({
         lastModel.set(typed.sessionID, { providerID: typed.model.providerID, id: typed.model.id });
       await handleContext(typed);
     });
+
+    const handleGenerate = createGenerateHook({ config, logger, store, isSubAgent });
+    await ctx.session.hook("generate", (event) => handleGenerate(event as unknown as SessionContextEvent));
 
     // Registration failure is otherwise silent, so latch one warning per
     // plugin generation. Core's editor `add` drops a definition that fails

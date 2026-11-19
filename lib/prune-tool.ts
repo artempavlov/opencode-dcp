@@ -582,9 +582,11 @@ function resolvePlans(
   for (const entry of args.content) {
     const startIndex = boundaryToIndex(entry.startId, keyToPosition, blockToPosition, runtime, "startId");
     const endIndex = boundaryToIndex(entry.endId, keyToPosition, blockToPosition, runtime, "endId");
-    if (startIndex === undefined || endIndex === undefined) continue;
     if (startIndex > endIndex) {
-      throw new Error(`startId ${entry.startId} appears after endId ${entry.endId}`);
+      throw boundaryRecoveryError(
+        `startId ${entry.startId} appears after endId ${entry.endId}; visible positions are ${startIndex + 1} and ${endIndex + 1}`,
+        undefined, keyToPosition, blockToPosition, runtime,
+      );
     }
 
     const covered = new Set<string>();
@@ -671,20 +673,48 @@ function boundaryToIndex(
   blockToPosition: Map<number, number>,
   runtime: SessionRuntime,
   field: string,
-): number | undefined {
+): number {
   const parsed = parseBoundaryChecked(id, field);
+  const fail = (message: string) => boundaryRecoveryError(message, id, keyToPosition, blockToPosition, runtime);
   if (parsed.kind === "message") {
     const refKey = runtime.refs.keyOf(parsed.ref);
     const idx = refKey !== undefined ? keyToPosition.get(refKey) : undefined;
     if (idx !== undefined) return idx;
-    throw new Error(`${field} ${id} does not exist in the current context`);
+    throw fail(`${field} ${id} does not exist in the current context`);
   }
   const block = runtime.state.blocks[String(parsed.blockId)];
-  if (!block) throw new Error(`${field} ${id} references an unknown compressed block`);
-  if (!block.active) throw new Error(`${field} ${id} references an inactive compressed block`);
+  if (!block) throw fail(`${field} ${id} references an unknown compressed block`);
+  if (!block.active) throw fail(`${field} ${id} references an inactive compressed block`);
   const position = blockToPosition.get(parsed.blockId);
-  if (position === undefined) throw new Error(`${field} ${id} references a block with no visible summary`);
+  if (position === undefined) throw fail(`${field} ${id} references a block with no visible summary`);
   return position;
+}
+
+function boundaryRecoveryError(
+  message: string,
+  id: string | undefined,
+  keyToPosition: Map<string, number>,
+  blockToPosition: Map<number, number>,
+  runtime: SessionRuntime,
+): Error {
+  const ordered = [...blockToPosition].sort((a, b) => a[1] - b[1]).map(([blockId]) => blockId);
+  const raw = [...keyToPosition].sort((a, b) => a[1] - b[1])
+    .map(([key]) => runtime.refs.byKey.get(key)).filter(Boolean);
+  const failed = id === undefined ? null : parseBlockRef(id);
+  const previous = failed === null ? undefined : runtime.state.blocks[String(failed)];
+  const parents = previous?.coveredKeys.length ? ordered.filter((blockId) => {
+    const candidate = runtime.state.blocks[String(blockId)];
+    return blockId !== failed && candidate?.active && previous.coveredKeys.every((key) => candidate.coveredKeys.includes(key));
+  }) : [];
+  return new Error([
+    `${message}.`,
+    "No compression was performed by this failed call. Do not retry or guess obsolete IDs.",
+    ...(parents.length ? [`${id}'s old span is now covered by ${parents.map(formatBlockRef).join(", ")}. This is navigation, NOT permission to substitute: a parent can include additional content. Read its current summary before selecting a new range.`] : []),
+    "CURRENT VALID BOUNDARIES (transcript order, not numerical order):",
+    `Active compressed blocks: ${ordered.map(formatBlockRef).join(", ") || "none"}.`,
+    `Raw messages: ${raw.join(", ") || "none"}.`,
+    "Choose both endpoints from this current view. IDs in earlier tool arguments/results are historical, not a boundary catalogue. Re-evaluate after each successful prune; never infer missing b-numbers.",
+  ].join("\n"));
 }
 
 type ParsedBoundary = { kind: "message"; ref: string } | { kind: "block"; blockId: number };
