@@ -80,14 +80,10 @@ The user's standing rules: **always update to latest — pull the `opencode-v2` 
 - Pull the reference first: `git -C ~/.local/share/opencode/repos/github.com/anomalyco/opencode@v2 pull --ff-only` (branch `v2`). Never adjust the plugin to a stale snapshot.
 - Update the dependencies: `AUBE_MINIMUM_RELEASE_AGE=0 aube update @opencode/plugin @opencode/theme` (specifiers stay `latest` in `package.json`; the lockfile is the pin). Then `aubr typecheck` + `aube test`, and `npm run build` before live testing.
 - Check the behavior against the published package rather than the reference source — the snapshot's `packages/plugin/package.json` version can trail npm (`2.0.26` in the snapshot vs `dist-tags.latest 2.2.3`); `npm view @opencode/plugin version` is the version source of truth.
-- Last verified pairing (2026-11-08): `@opencode/plugin` + `@opencode/theme` 2.2.6; typecheck and 182 unit tests pass. `npm run test:runtime` tests the built/installed artifact in isolated V2 2.2.5 with a fake provider, including revert, replacement, cache prefix, raw-history invariance, and restart. Use `OPENCODE_V2_BINARY` for another executable and `DCP_PLUGIN_SOURCE` for the installed directory.
+- `npm run test:runtime` tests the built or installed artifact in an isolated V2 instance with a fake provider, including revert, replacement, cache prefix, raw-history invariance, and restart. Use `OPENCODE_V2_BINARY` for another executable and `DCP_PLUGIN_SOURCE` for the installed directory.
 - `scripts/install-local.mjs <absolute-directory>` upgrades only the known
   `opencode-dcp-local` vendor layout without changing config or storage. Rebuild
   first. Never publish personal-session fixtures or ignored `.tmp/` traces.
-
-## Reference repos (wired in `.opencode/opencode.json`)
-
-- `opencode-v2` — OpenCode V2 source: use for plugin API surface (hooks, tool/command transform, storage, events, permissions) and config schema details. Clone lives at `~/.local/share/opencode/repos/github.com/anomalyco/opencode@v2` (origin: `https://github.com/anomalyco/opencode.git`, branch `v2`).
 
 ## Local OpenCode config — do not re-enable plugins
 
